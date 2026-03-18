@@ -19,11 +19,11 @@ local HRP = Character:WaitForChild("HumanoidRootPart")
 
 local CommF = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("CommF_")
 
-local Status = self.Status
-local TweenStatus = self.TweenStatus
-local StoreStatus = self.StoringStatus
-local FruitType = self.FruitType
-local DistanceText = self.FruitDistance
+local Status = AdminusUI.Status
+local TweenStatus = AdminusUI.TweenStatus
+local StoreStatus = AdminusUI.StoringStatus
+local FruitType = AdminusUI.FruitType
+local DistanceText = AdminusUI.FruitDistance
 
 local TWEEN_SPEED = 250
 local ENABLE_ESP = true
@@ -140,7 +140,6 @@ end
 
 local function Main()
 
-    
 	Status.Text = 'Status: <font color="rgb(255,255,0)" weight="Regular">Searching fruit...</font>'
 
 	local fruits = GetAllFruits()
