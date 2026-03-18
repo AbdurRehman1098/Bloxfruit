@@ -1,6 +1,7 @@
 --[[
     ╔══════════════════════════════════════════════════════════╗
-    ║         BLOX FRUITS — WEBHOOK NOTIFIER v3.0             ║
+    ║         BLOX FRUITS — FRUIT SPAWN NOTIFIER v4.0         ║
+    ║  Detects dropped fruits in Workspace → Discord Webhook  ║
     ║  loadstring-ready | Xeno / KRNL / Fluxus / Synapse      ║
     ╚══════════════════════════════════════════════════════════╝
 
@@ -12,500 +13,225 @@
 -- ══════════════════════════════════════════════════════════════
 local CONFIG = {
 
-    -- 🔔 Webhook: fires when ANY fruit spawns in the world
+    -- 🔔 Webhook: fires when any fruit is dropped / spawned in the world
     FRUIT_SPAWN_WEBHOOK = "https://discord.com/api/webhooks/1483939239380123809/FsvTNHa11Z-Zoyy9WlOPp5SXCHSxaf9XV1vA7lrPocMWkycnjKmEBc3j27llliFR3LC5",
 
-    -- 🛒 Webhook: fires when a watched fruit appears in the Dealer shop
-    DEALER_WEBHOOK = "https://discord.com/api/webhooks/1483939025118298283/MfFns7FS3QD5sNd9Ywa4hpM1kdPTFh92E6twWhoy102ljVMFlxX-jR_Yenqx3xrNrUM5",
+    -- ⏱️ How often to scan Workspace for fruits (seconds)
+    SCAN_INTERVAL = 3,
 
-    -- Role/user to ping in the dealer webhook (e.g. "@here", "@everyone", "<@ROLE_ID>")
-    DEALER_PING = "@here",
-
-    -- Fruits you care about in the Dealer — leave empty {} to alert on ALL fruits
-    DEALER_WATCH_FRUITS = {
-        "Dragon",
-        "Leopard",
-        "Kitsune",
-        "Dough",
-        "Spirit",
-        "Venom",
-        "Control",
-        "Mammoth",
-        "Sound",
-        "Phoenix",
-    },
-
-    -- How often to scan (seconds)
-    WORLD_CHECK_INTERVAL  = 3,
-    DEALER_CHECK_INTERVAL = 5,
-
-    -- Cooldown before re-pinging for the same fruit (seconds)
-    NOTIFY_COOLDOWN = 120,
+    -- ⏳ Don't re-ping the same fruit instance within this many seconds
+    NOTIFY_COOLDOWN = 90,
 }
 
 -- ══════════════════════════════════════════════════════════════
---  🍒 FRUIT DATA — Official Blox Fruit Dealer prices + emojis
+--  🍒 FRUIT DATA  (actual in-game Tool names used by Blox Fruits)
 -- ══════════════════════════════════════════════════════════════
 local FRUIT_DATA = {
-    -- name            = { beli,        emoji,  rarity }
-    Chop              = { 30000,        "🪓",  "Common"    },
-    Bomb              = { 5000,         "💣",  "Common"    },
-    Spike             = { 7500,         "🌵",  "Common"    },
-    Spring            = { 60000,        "🌸",  "Common"    },
-    Kilo              = { 5000,         "⚖️",  "Common"    },
-    Smoke             = { 100000,       "💨",  "Common"    },
-    Spin              = { 7500,         "🌀",  "Common"    },
-    Blade             = { 25000,        "⚔️",  "Common"    },
-    Flame             = { 250000,       "🔥",  "Rare"      },
-    Ice               = { 350000,       "❄️",  "Rare"      },
-    Sand              = { 420000,       "🏜️",  "Rare"      },
-    Dark              = { 500000,       "🌑",  "Rare"      },
-    Diamond           = { 600000,       "💎",  "Rare"      },
-    Light             = { 650000,       "💡",  "Rare"      },
-    Rubber            = { 750000,       "🫧",  "Rare"      },
-    Barrier           = { 800000,       "🛡️",  "Rare"      },
-    Magma             = { 850000,       "🌋",  "Rare"      },
-    Quake             = { 1000000,      "💢",  "Rare"      },
-    Buddha            = { 1200000,      "🧘",  "Rare"      },
-    Love              = { 1200000,      "❤️",  "Rare"      },
-    Spider            = { 1500000,      "🕷️",  "Rare"      },
-    Ghost             = { 1550000,      "👻",  "Rare"      },
-    Revive            = { 550000,       "💊",  "Rare"      },
-    Falcon            = { 300000,       "🦅",  "Rare"      },
-    Phoenix           = { 1800000,      "🦅",  "Legendary" },
-    Rumble            = { 2100000,      "⚡",  "Legendary" },
-    Pain              = { 2300000,      "😖",  "Legendary" },
-    Blizzard          = { 2500000,      "🌨️",  "Legendary" },
-    Dough             = { 2800000,      "🥖",  "Legendary" },
-    Mammoth           = { 2700000,      "🐘",  "Legendary" },
-    Shadow            = { 2900000,      "🌚",  "Legendary" },
-    Venom             = { 3000000,      "☠️",  "Legendary" },
-    Gravity           = { 3000000,      "🪐",  "Legendary" },
-    Control           = { 3200000,      "🎮",  "Legendary" },
-    Spirit            = { 3400000,      "👁️",  "Legendary" },
-    Dragon            = { 3500000,      "🐲",  "Legendary" },
-    Sound             = { 1700000,      "🎵",  "Legendary" },
-    Leopard           = { 5000000,      "🐆",  "Legendary" },
-    Kitsune           = { 5000000,      "🦊",  "Legendary" },
+    -- name (exact in-game)         emoji   rarity
+    ["Chop Fruit"]      = { "🪓",  "Common"    },
+    ["Bomb Fruit"]      = { "💣",  "Common"    },
+    ["Spike Fruit"]     = { "🌵",  "Common"    },
+    ["Spring Fruit"]    = { "🌸",  "Common"    },
+    ["Kilo Fruit"]      = { "⚖️",  "Common"    },
+    ["Smoke Fruit"]     = { "💨",  "Common"    },
+    ["Spin Fruit"]      = { "🌀",  "Common"    },
+    ["Blade Fruit"]     = { "⚔️",  "Common"    },
+    ["Flame Fruit"]     = { "🔥",  "Rare"      },
+    ["Ice Fruit"]       = { "❄️",  "Rare"      },
+    ["Sand Fruit"]      = { "🏜️",  "Rare"      },
+    ["Dark Fruit"]      = { "🌑",  "Rare"      },
+    ["Diamond Fruit"]   = { "💎",  "Rare"      },
+    ["Light Fruit"]     = { "💡",  "Rare"      },
+    ["Rubber Fruit"]    = { "🫧",  "Rare"      },
+    ["Barrier Fruit"]   = { "🛡️",  "Rare"      },
+    ["Magma Fruit"]     = { "🌋",  "Rare"      },
+    ["Quake Fruit"]     = { "💢",  "Rare"      },
+    ["Buddha Fruit"]    = { "🧘",  "Rare"      },
+    ["Love Fruit"]      = { "❤️",  "Rare"      },
+    ["Spider Fruit"]    = { "🕷️",  "Rare"      },
+    ["Ghost Fruit"]     = { "👻",  "Rare"      },
+    ["Revive Fruit"]    = { "💊",  "Rare"      },
+    ["Falcon Fruit"]    = { "🦅",  "Rare"      },
+    ["Phoenix Fruit"]   = { "🦅",  "Legendary" },
+    ["Rumble Fruit"]    = { "⚡",  "Legendary" },
+    ["Pain Fruit"]      = { "😖",  "Legendary" },
+    ["Blizzard Fruit"]  = { "🌨️",  "Legendary" },
+    ["Dough Fruit"]     = { "🥖",  "Legendary" },
+    ["Mammoth Fruit"]   = { "🐘",  "Legendary" },
+    ["Shadow Fruit"]    = { "🌚",  "Legendary" },
+    ["Venom Fruit"]     = { "☠️",  "Legendary" },
+    ["Gravity Fruit"]   = { "🪐",  "Legendary" },
+    ["Control Fruit"]   = { "🎮",  "Legendary" },
+    ["Spirit Fruit"]    = { "👁️",  "Legendary" },
+    ["Dragon Fruit"]    = { "🐲",  "Legendary" },
+    ["Sound Fruit"]     = { "🎵",  "Legendary" },
+    ["Leopard Fruit"]   = { "🐆",  "Legendary" },
+    ["Kitsune Fruit"]   = { "🦊",  "Legendary" },
+    ["Yeti Fruit"]      = { "🏔️",  "Legendary" },
+    ["Tiger Fruit"]     = { "🐯",  "Legendary" },
+    ["Gas Fruit"]       = { "🌫️",  "Legendary" },
+    ["T-Rex Fruit"]     = { "🦖",  "Legendary" },
 }
 
 local RARITY_COLOR = {
-    Common    = 0xAAAAAA,
-    Rare      = 0xFF8800,
-    Legendary = 0xFF0000,
+    Common    = 0x99AAB5,   -- grey
+    Rare      = 0xFF8800,   -- orange
+    Legendary = 0xE74C3C,   -- red
+    Unknown   = 0xF4A460,
 }
 
 -- ══════════════════════════════════════════════════════════════
---  🔧 INTERNAL — don't touch below
+--  🔧  SERVICES & STATE
 -- ══════════════════════════════════════════════════════════════
 local HttpService = game:GetService("HttpService")
 local RunService  = game:GetService("RunService")
 local Players     = game:GetService("Players")
 local Workspace   = game:GetService("Workspace")
 
-local notifiedSpawns = {}   -- [instanceId] = lastNotifyTime
-local lastDealerSent = nil  -- timestamp of last dealer webhook
-
--- Build watchlist Set
-local watchSet = {}
-if #CONFIG.DEALER_WATCH_FRUITS == 0 then
-    -- empty = watch ALL
-    for name in pairs(FRUIT_DATA) do watchSet[name] = true end
-else
-    for _, name in ipairs(CONFIG.DEALER_WATCH_FRUITS) do watchSet[name] = true end
-end
-
--- ── Format number with commas ─────────────────────────────────
-local function commify(n)
-    local s = tostring(math.floor(n))
-    return s:reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")
-end
-
--- ── Get full server Job ID ────────────────────────────────────
-local function getServerId()
-    local ok, id = pcall(function() return game.JobId end)
-    return (ok and id and #id > 0) and id or "N/A"
-end
-
--- ── Get place ID (for direct server link) ────────────────────
-local function getDirectLink()
-    local ok, placeId = pcall(function() return game.PlaceId end)
-    local ok2, jobId  = pcall(function() return game.JobId end)
-    if ok and ok2 then
-        return "roblox://experiences/start?placeId=" .. tostring(placeId) .. "&gameInstanceId=" .. tostring(jobId)
-    end
-    return nil
-end
-
--- ── Local player ─────────────────────────────────────────────
-local function getPlayer()
-    local lp = Players.LocalPlayer
-    return lp and (lp.DisplayName .. " (@" .. lp.Name .. ")") or "Unknown"
-end
-
--- ── Timestamp ─────────────────────────────────────────────────
-local function timestamp()
-    return os.date("!%Y-%m-%dT%H:%M:%SZ")
-end
+local notified = {}   -- [instanceId] = os.time()
 
 -- ══════════════════════════════════════════════════════════════
---  📡 HTTP  (supports Xeno / KRNL / Fluxus / Synapse)
+--  📡  HTTP (Xeno / KRNL / Fluxus / Synapse auto-detect)
 -- ══════════════════════════════════════════════════════════════
 local function getRequestFn()
     for _, name in ipairs({ "request", "http_request", "syn_request" }) do
         local fn = getgenv and getgenv()[name]
         if type(fn) == "function" then return fn end
     end
-    -- direct global fallback
     if type(request)      == "function" then return request      end
     if type(http_request) == "function" then return http_request end
     if type(syn_request)  == "function" then return syn_request  end
     return nil
 end
 
-local function sendWebhook(url, data)
+local function sendWebhook(url, payload)
     local fn = getRequestFn()
     if not fn then
-        warn("[BF Notifier] No HTTP function found. Make sure your executor supports 'request'.")
+        warn("[BF Notifier] No HTTP function found. Your executor may not support 'request'.")
         return
     end
-    local body = HttpService:JSONEncode(data)
     pcall(fn, {
         Url     = url,
         Method  = "POST",
         Headers = { ["Content-Type"] = "application/json" },
-        Body    = body,
+        Body    = HttpService:JSONEncode(payload),
     })
 end
 
 -- ══════════════════════════════════════════════════════════════
---  🌍 WORLD FRUIT SPAWN — Clean embed with full server ID
+--  🛠️  HELPERS
 -- ══════════════════════════════════════════════════════════════
-local function buildSpawnEmbed(fruitName, pos)
-    local data    = FRUIT_DATA[fruitName] or {}
-    local emoji   = data[2] or "🍑"
-    local rarity  = data[3] or "Unknown"
-    local price   = data[1] and (commify(data[1]) .. " Beli") or "Unknown"
-    local color   = RARITY_COLOR[rarity] or 0xF4A460
-    local servId  = getServerId()
-    local link    = getDirectLink()
+local function getServerId()
+    local ok, id = pcall(function() return game.JobId end)
+    return (ok and id and #id > 0) and id or "N/A"
+end
 
-    local desc = string.format(
-        "%s **%s** `(%s)` just dropped on the map!\n\n" ..
-        "💰 **Price:** `%s`\n" ..
-        "📍 **Position:** `X:%.0f  Y:%.0f  Z:%.0f`",
-        emoji, fruitName, rarity, price, pos.X, pos.Y, pos.Z
-    )
+local function getLocalPlayer()
+    local lp = Players.LocalPlayer
+    return lp and (lp.DisplayName .. " (`" .. lp.Name .. "`)") or "Unknown"
+end
 
-    local fields = {
-        { name = "🌐 Full Server ID", value = "```" .. servId .. "```", inline = false },
-        { name = "👤 Detected By",    value = getPlayer(),               inline = true  },
-    }
+local function timestamp()
+    return os.date("!%Y-%m-%dT%H:%M:%SZ")
+end
 
-    if link then
-        table.insert(fields, { name = "🔗 Join Link", value = "[Click to join](" .. link .. ")", inline = true })
+-- ══════════════════════════════════════════════════════════════
+--  🍑  FRUIT DETECTION  (matches Blox Fruits sniper logic)
+-- ══════════════════════════════════════════════════════════════
+
+-- Returns true if the instance is a dropped Blox Fruit Tool
+local function isFruit(obj)
+    return obj:IsA("Tool")
+        and obj:FindFirstChild("Handle") ~= nil
+        and string.find(obj.Name, "Fruit") ~= nil
+end
+
+-- Returns all fruits currently dropped in Workspace root
+local function getAllFruits()
+    local fruits = {}
+    for _, v in ipairs(Workspace:GetChildren()) do
+        if isFruit(v) then
+            table.insert(fruits, v)
+        end
     end
+    return fruits
+end
+
+-- ══════════════════════════════════════════════════════════════
+--  💬  EMBED BUILDER — clean, bold, backtick style
+-- ══════════════════════════════════════════════════════════════
+local function buildEmbed(fruit)
+    local name   = fruit.Name
+    local data   = FRUIT_DATA[name]
+    local emoji  = data and data[1] or "🍑"
+    local rarity = data and data[2] or "Unknown"
+    local color  = RARITY_COLOR[rarity] or RARITY_COLOR.Unknown
+
+    local pos = fruit.Handle and fruit.Handle.Position or Vector3.new(0, 0, 0)
+    local serverId = getServerId()
+
+    local desc = table.concat({
+        emoji .. " **" .. name .. "** — `" .. rarity .. "`",
+        "",
+        "📍 **Position** `X:" .. math.floor(pos.X) .. "  Y:" .. math.floor(pos.Y) .. "  Z:" .. math.floor(pos.Z) .. "`",
+        "👤 **Detected by** " .. getLocalPlayer(),
+        "",
+        "🌐 **Server ID**",
+        "```" .. serverId .. "```",
+    }, "\n")
 
     return {
-        title       = "🍑 Fruit Spotted in the World!",
+        title       = emoji .. " Fruit Dropped!",
         description = desc,
         color       = color,
-        fields      = fields,
-        footer      = { text = "BF Notifier • World Spawn" },
+        footer      = { text = "BF Notifier • Fruit Spawn" },
         timestamp   = timestamp(),
     }
 end
 
-local function getPosition(obj)
-    if obj:IsA("Model") then
-        if obj.PrimaryPart then return obj.PrimaryPart.Position end
-        for _, c in ipairs(obj:GetChildren()) do
-            if c:IsA("BasePart") then return c.Position end
-        end
-    elseif obj:IsA("BasePart") then
-        return obj.Position
-    end
-    return Vector3.new(0, 0, 0)
-end
-
-local function parseFruitName(obj)
-    local name = obj.Name
-
-    -- StringValue / Attribute
-    if obj:IsA("Model") then
-        for _, key in ipairs({ "FruitName", "Fruit", "Name" }) do
-            local sv = obj:FindFirstChild(key)
-            if sv and sv:IsA("StringValue") and FRUIT_DATA[sv.Value] then return sv.Value end
-            local attr = obj:GetAttribute(key)
-            if attr and FRUIT_DATA[tostring(attr)] then return tostring(attr) end
-        end
-    end
-
-    -- "DragonFruit" / "Dragon_Fruit"
-    local a = name:match("^(.-)_?[Ff]ruit$")
-    if a and FRUIT_DATA[a] then return a end
-
-    -- "Fruit_Dragon" / "FruitDragon"
-    local b = name:match("^[Ff]ruit[_]?(.+)$")
-    if b and FRUIT_DATA[b] then return b end
-
-    -- Direct match
-    if FRUIT_DATA[name] then return name end
-
-    return nil
-end
-
-local function scanWorldFruits()
-    local roots = { Workspace }
-    for _, folder in ipairs({ "Fruits", "Map", "Items", "Drops", "FruitStorage", "Dropped" }) do
-        local f = Workspace:FindFirstChild(folder)
-        if f then table.insert(roots, f) end
-    end
-
-    local now = os.time()
-    for _, root in ipairs(roots) do
-        for _, obj in ipairs(root:GetDescendants()) do
-            if obj:IsA("Model") or obj:IsA("BasePart") then
-                local fruitName = parseFruitName(obj)
-                if fruitName then
-                    local id = tostring(obj)
-                    if not notifiedSpawns[id] or (now - notifiedSpawns[id]) > CONFIG.NOTIFY_COOLDOWN then
-                        notifiedSpawns[id] = now
-                        local pos = getPosition(obj)
-                        print("[BF Notifier] 🍑 Fruit dropped: " .. fruitName)
-                        sendWebhook(CONFIG.FRUIT_SPAWN_WEBHOOK, {
-                            username   = "🍈 BF Fruit Spawn",
-                            avatar_url = "https://static.wikia.nocookie.net/blox-piece/images/thumb/5/5f/Flame_Fruit.png/120px-Flame_Fruit.png",
-                            embeds     = { buildSpawnEmbed(fruitName, pos) },
-                        })
-                    end
-                end
-            end
-        end
-    end
-
-    -- Cleanup stale entries
-    for id, ts in pairs(notifiedSpawns) do
-        if now - ts > 600 then notifiedSpawns[id] = nil end
-    end
-end
-
 -- ══════════════════════════════════════════════════════════════
---  🛒 DEALER SHOP — Mirage-style stock embed
+--  🔁  MAIN SCAN LOOP
 -- ══════════════════════════════════════════════════════════════
-
--- Stock change happens every ~4 hours in Blox Fruits
--- We track when we first saw the current stock to estimate refresh time
-local dealerStockSeen  = nil   -- os.time() when current stock was first detected
-local dealerLastStock  = {}    -- set of fruit names in last detected stock
-
-local function stockChangeText()
-    if not dealerStockSeen then return "Unknown" end
-    local elapsed = os.time() - dealerStockSeen
-    local h = math.floor(elapsed / 3600)
-    local m = math.floor((elapsed % 3600) / 60)
-    if h > 0 then
-        return string.format("%dh %dm ago", h, m)
-    else
-        return string.format("%dm ago", m)
-    end
-end
-
-local function buildDealerEmbed(stockList)
-    -- stockList = array of { name, price }
-    -- Sort by price ascending
-    table.sort(stockList, function(a, b) return a[2] < b[2] end)
-
-    local lines = {}
-    for _, item in ipairs(stockList) do
-        local name  = item[1]
-        local price = item[2]
-        local data  = FRUIT_DATA[name] or {}
-        local emoji = data[2] or "🍑"
-        table.insert(lines, string.format("%s **%s** • 💰`%s`", emoji, name, commify(price)))
-    end
-
-    local stockText   = table.concat(lines, "\n")
-    local changeText  = stockChangeText()
-    local servId      = getServerId()
-
-    return {
-        title       = "🏪 Current Blox Fruit Dealer Stock",
-        description = stockText .. "\n\n" ..
-                      "⏰ **Stock changed:** `" .. changeText .. "`\n" ..
-                      "🌐 **Server:** `" .. servId .. "`",
-        color       = 0x5865F2,
-        footer      = { text = "BF Notifier • Dealer Shop • " .. getPlayer() },
-        timestamp   = timestamp(),
-    }
-end
-
---[[
-    Real Blox Fruit Dealer detection:
-    The game stores the active dealer stock in the GUI that opens when
-    you approach the NPC. We scan:
-    1. The NPC model's descendant TextLabels for "FruitName - Price" format
-    2. PlayerGui for any open dealer shop frames
-    3. The actual RemoteFunction call is server-side so we rely on GUI
---]]
-local function readDealerStock()
-    local found = {}  -- { [fruitName] = price }
-
-    -- ① PlayerGui scan — the most reliable source when GUI is open
-    local lp = Players.LocalPlayer
-    if lp then
-        local playerGui = lp:FindFirstChild("PlayerGui")
-        if playerGui then
-            for _, desc in ipairs(playerGui:GetDescendants()) do
-                if desc:IsA("TextLabel") and desc.Visible then
-                    local txt = desc.Text or ""
-                    -- Match "FruitName" anywhere in the label
-                    for fruitName, data in pairs(FRUIT_DATA) do
-                        if txt == fruitName or txt:find("^" .. fruitName .. "$") then
-                            -- Price is often in a sibling or parent label
-                            local parent = desc.Parent
-                            if parent then
-                                for _, sib in ipairs(parent:GetChildren()) do
-                                    if sib:IsA("TextLabel") and sib ~= desc then
-                                        local numStr = sib.Text:gsub(",", ""):gsub("[^%d]", "")
-                                        local price = tonumber(numStr)
-                                        if price and price >= 1000 then
-                                            found[fruitName] = price
-                                        end
-                                    end
-                                end
-                            end
-                            -- Also try attribute price
-                            local attrPrice = desc:GetAttribute("Price") or desc.Parent and desc.Parent:GetAttribute("Price")
-                            if attrPrice then found[fruitName] = tonumber(attrPrice) or data[1] end
-                        end
-                        -- Pattern: "Dragon 3,500,000" or "Dragon\n3,500,000"
-                        local matchedPrice = txt:match("^" .. fruitName .. "[%s\n%-]+([%d,]+)")
-                        if matchedPrice then
-                            found[fruitName] = tonumber(matchedPrice:gsub(",", "")) or data[1]
-                        end
-                    end
-
-                    -- Generic "Name - Price" pattern on a single label
-                    local rawFruit, rawPrice = txt:match("^([%a]+)%s*[%-%:]%s*([%d,]+)")
-                    if rawFruit and rawPrice and FRUIT_DATA[rawFruit] then
-                        found[rawFruit] = tonumber(rawPrice:gsub(",", "")) or FRUIT_DATA[rawFruit][1]
-                    end
-                end
-            end
-        end
-    end
-
-    -- ② Workspace NPC scan — fallback
-    local dealerNPCs = {
-        "Blox Fruit Dealer", "Blox Fruits Dealer",
-        "Mysterious Scientist", "Fruit Dealer",
-    }
-    for _, npcName in ipairs(dealerNPCs) do
-        local npc = Workspace:FindFirstChild(npcName, true)
-        if npc then
-            for _, desc in ipairs(npc:GetDescendants()) do
-                if desc:IsA("TextLabel") then
-                    local txt = desc.Text or ""
-                    local rawFruit, rawPrice = txt:match("^([%a]+)%s*[%-%:]%s*([%d,]+)")
-                    if rawFruit and rawPrice and FRUIT_DATA[rawFruit] then
-                        found[rawFruit] = tonumber(rawPrice:gsub(",", "")) or FRUIT_DATA[rawFruit][1]
-                    end
-                    -- Name-only label
-                    if FRUIT_DATA[txt] then
-                        if not found[txt] then found[txt] = FRUIT_DATA[txt][1] end
-                    end
-                end
-            end
-        end
-    end
-
-    return found
-end
-
-local function fruitSetHash(stock)
-    local keys = {}
-    for k in pairs(stock) do table.insert(keys, k) end
-    table.sort(keys)
-    return table.concat(keys, "|")
-end
-
-local function scanDealerShop()
-    local stock = readDealerStock()
-    if next(stock) == nil then return end  -- nothing found, GUI probably not open
-
-    -- Detect stock change
-    local newHash = fruitSetHash(stock)
-    local oldHash = fruitSetHash(dealerLastStock)
-
-    if newHash ~= oldHash then
-        -- Stock changed (or first detection)
-        dealerStockSeen = os.time()
-        dealerLastStock = stock
-    end
-
-    -- Check if any watched fruit is in current stock
-    local watchedInStock = {}
-    for fruitName, price in pairs(stock) do
-        if watchSet[fruitName] then
-            table.insert(watchedInStock, { fruitName, price })
-        end
-    end
-
-    if #watchedInStock == 0 then return end
-
-    -- Build full stock list for the embed (show everything that's in stock)
-    local allStock = {}
-    for fruitName, price in pairs(stock) do
-        table.insert(allStock, { fruitName, price })
-    end
-
-    -- Rate-limit: only send if stock changed OR cooldown passed
-    local now = os.time()
-    if lastDealerSent and (now - lastDealerSent) < CONFIG.NOTIFY_COOLDOWN then return end
-    lastDealerSent = now
-
-    -- Build watched fruit names for the ping text
-    local watchedNames = {}
-    for _, item in ipairs(watchedInStock) do
-        table.insert(watchedNames, item[1])
-    end
-
-    local content = CONFIG.DEALER_PING .. " 🛒 **" .. table.concat(watchedNames, ", ") .. "** is in the Dealer right now!"
-
-    print("[BF Notifier] 🛒 Dealer stock contains watched fruit(s): " .. table.concat(watchedNames, ", "))
-    sendWebhook(CONFIG.DEALER_WEBHOOK, {
-        content    = content,
-        username   = "🛒 BF Dealer Alert",
-        avatar_url = "https://static.wikia.nocookie.net/blox-piece/images/thumb/5/5f/Flame_Fruit.png/120px-Flame_Fruit.png",
-        embeds     = { buildDealerEmbed(allStock) },
-    })
-end
-
--- ══════════════════════════════════════════════════════════════
---  🔁 MAIN LOOP
--- ══════════════════════════════════════════════════════════════
-local worldTimer  = 0
-local dealerTimer = 0
+local scanTimer = 0
 
 print("╔══════════════════════════════════════════════╗")
-print("║   🍈 Blox Fruits Webhook Notifier v3  ACTIVE ║")
+print("║   🍈 Blox Fruits Spawn Notifier v4  ACTIVE   ║")
 print("╚══════════════════════════════════════════════╝")
-print("[BF Notifier] Server ID: " .. getServerId())
-print("[BF Notifier] Player: " .. getPlayer())
+print("[BF Notifier] Server: " .. getServerId())
+print("[BF Notifier] Player: " .. (Players.LocalPlayer and Players.LocalPlayer.Name or "?"))
 
 RunService.Heartbeat:Connect(function(dt)
-    worldTimer  = worldTimer  + dt
-    dealerTimer = dealerTimer + dt
+    scanTimer = scanTimer + dt
+    if scanTimer < CONFIG.SCAN_INTERVAL then return end
+    scanTimer = 0
 
-    if worldTimer >= CONFIG.WORLD_CHECK_INTERVAL then
-        worldTimer = 0
-        pcall(scanWorldFruits)
-    end
+    local ok, err = pcall(function()
+        local now    = os.time()
+        local fruits = getAllFruits()
 
-    if dealerTimer >= CONFIG.DEALER_CHECK_INTERVAL then
-        dealerTimer = 0
-        pcall(scanDealerShop)
+        for _, fruit in ipairs(fruits) do
+            local id = tostring(fruit)
+
+            if not notified[id] or (now - notified[id]) > CONFIG.NOTIFY_COOLDOWN then
+                notified[id] = now
+                print("[BF Notifier] 🍑 Detected: " .. fruit.Name)
+
+                sendWebhook(CONFIG.FRUIT_SPAWN_WEBHOOK, {
+                    username   = "🍈 BF Fruit Notifier",
+                    avatar_url = "https://static.wikia.nocookie.net/blox-piece/images/thumb/5/5f/Flame_Fruit.png/120px-Flame_Fruit.png",
+                    embeds     = { buildEmbed(fruit) },
+                })
+            end
+        end
+
+        -- Cleanup stale entries (> 10 min)
+        for id, ts in pairs(notified) do
+            if now - ts > 600 then notified[id] = nil end
+        end
+    end)
+
+    if not ok then
+        warn("[BF Notifier] Scan error: " .. tostring(err))
     end
 end)
 
