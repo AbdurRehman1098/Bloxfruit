@@ -1,0 +1,373 @@
+--[[
+    ╔══════════════════════════════════════════════════════════╗
+    ║         BLOX FRUITS — WEBHOOK NOTIFIER v2.0             ║
+    ║  Loadstring-ready | Xeno / KRNL / Fluxus compatible     ║
+    ╚══════════════════════════════════════════════════════════╝
+
+    Run in executor:
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_REPO/main/BloxFruits_WebhookNotifier.lua"))()
+--]]
+
+-- ══════════════════════════════════════════════════════════════
+--  ⚙️  USER CONFIGURATION  —  Edit these before uploading!
+-- ══════════════════════════════════════════════════════════════
+
+local CONFIG = {
+
+    -- 🔔 Webhook: fires when ANY fruit spawns in the world
+    FRUIT_SPAWN_WEBHOOK = "https://discord.com/api/webhooks/1483939239380123809/FsvTNHa11Z-Zoyy9WlOPp5SXCHSxaf9XV1vA7lrPocMWkycnjKmEBc3j27llliFR3LC5",
+
+    -- 🛒 Webhook: fires when a watched fruit appears in the Dealer shop
+    DEALER_WEBHOOK = "https://discord.com/api/webhooks/1483939025118298283/MfFns7FS3QD5sNd9Ywa4hpM1kdPTFh92E6twWhoy102ljVMFlxX-jR_Yenqx3xrNrUM5",
+
+    -- 📋 Fruits to watch in the Dealer (add/remove names here)
+    DEALER_WATCH_FRUITS = {
+        "Dragon",
+        "Leopard",
+        "Kitsune",
+        "Dough",
+        "Spirit",
+        "Venom",
+        "Control",
+        "Mammoth",
+        "Sound",
+        "Phoenix",
+    },
+
+    -- ⏱️ How often to scan (seconds)
+    WORLD_CHECK_INTERVAL  = 3,
+    DEALER_CHECK_INTERVAL = 5,
+
+    -- ⏳ Cooldown between pings for the same fruit (seconds)
+    NOTIFY_COOLDOWN = 60,
+}
+
+-- ══════════════════════════════════════════════════════════════
+--  DO NOT EDIT BELOW THIS LINE
+-- ══════════════════════════════════════════════════════════════
+
+local HttpService = game:GetService("HttpService")
+local RunService  = game:GetService("RunService")
+local Players     = game:GetService("Players")
+local Workspace   = game:GetService("Workspace")
+
+-- ── Rarity table ─────────────────────────────────────────────
+local FRUIT_RARITY = {
+    -- Legendary
+    Dragon="Legendary",Leopard="Legendary",Kitsune="Legendary",
+    Dough="Legendary",Spirit="Legendary",Venom="Legendary",
+    Control="Legendary",Mammoth="Legendary",Sound="Legendary",
+    Phoenix="Legendary",Rumble="Legendary",Pain="Legendary",
+    Gravity="Legendary",
+    -- Rare
+    Buddha="Rare",Shadow="Rare",Blizzard="Rare",Quake="Rare",
+    Magma="Rare",Flame="Rare",Ice="Rare",Light="Rare",Barrier="Rare",
+    -- Uncommon
+    Love="Uncommon",Rubber="Uncommon",Revive="Uncommon",
+    -- Common
+    Bomb="Common",Spike="Common",Chop="Common",Spring="Common",
+    Kilo="Common",Smoke="Common",Spin="Common",Blade="Common",Diamond="Common",
+}
+
+local RARITY_COLORS = {
+    Legendary = 0xFF0000,  -- Red
+    Rare      = 0xFF6600,  -- Orange
+    Uncommon  = 0xFFFF00,  -- Yellow
+    Common    = 0xAAAAAA,  -- Grey
+    Unknown   = 0xF4A460,  -- Sandy
+}
+
+-- ── State ─────────────────────────────────────────────────────
+local notifiedFruits   = {}
+local lastDealerFruits = {}
+
+local dealerWatchSet = {}
+for _, f in ipairs(CONFIG.DEALER_WATCH_FRUITS) do
+    dealerWatchSet[f] = true
+end
+
+-- ── Helpers ───────────────────────────────────────────────────
+local function getRarity(name)
+    return FRUIT_RARITY[name] or "Unknown"
+end
+
+local function getRarityColor(rarity)
+    return RARITY_COLORS[rarity] or RARITY_COLORS.Unknown
+end
+
+local function getTimestamp()
+    return os.date("!%Y-%m-%dT%H:%M:%SZ")
+end
+
+local function getServerId()
+    local ok, id = pcall(function() return game.JobId end)
+    return (ok and id and #id > 0) and (id:sub(1,8).."...") or "Unknown"
+end
+
+local function getPlayer()
+    local lp = Players.LocalPlayer
+    return lp and (lp.DisplayName.." (@"..lp.Name..")") or "Unknown"
+end
+
+-- ── HTTP sender (supports Xeno, KRNL, Fluxus, Synapse) ───────
+local function httpPost(url, body)
+    -- Try different request APIs available in various executors
+    local apis = { "request", "http_request", "syn_request" }
+    local fn = nil
+
+    for _, name in ipairs(apis) do
+        if type(getgenv()[name]) == "function" then
+            fn = getgenv()[name]
+            break
+        end
+    end
+
+    -- Fallback: check globals directly
+    if not fn then
+        fn = request or http_request or syn_request
+    end
+
+    if not fn then
+        warn("[BF Notifier] No HTTP function found! Make sure your executor supports 'request'.")
+        return
+    end
+
+    local ok, err = pcall(fn, {
+        Url     = url,
+        Method  = "POST",
+        Headers = { ["Content-Type"] = "application/json" },
+        Body    = body,
+    })
+
+    if not ok then
+        warn("[BF Notifier] Webhook error: " .. tostring(err))
+    end
+end
+
+local function sendWebhook(url, embed)
+    local payload = HttpService:JSONEncode({
+        username   = "🍈 BF Notifier",
+        avatar_url = "https://static.wikia.nocookie.net/blox-piece/images/thumb/5/5f/Flame_Fruit.png/120px-Flame_Fruit.png",
+        embeds     = { embed },
+    })
+    httpPost(url, payload)
+end
+
+-- ══════════════════════════════════════════════════════════════
+--  🌍 WORLD FRUIT SCANNER
+-- ══════════════════════════════════════════════════════════════
+local function buildSpawnEmbed(fruitName, pos)
+    local rarity = getRarity(fruitName)
+    return {
+        title       = "🍑 Fruit Spawned in World!",
+        description = string.format("A **%s** fruit has been detected on the map!", fruitName),
+        color       = getRarityColor(rarity),
+        fields      = {
+            { name = "🍈 Fruit",       value = fruitName,                                              inline = true  },
+            { name = "⭐ Rarity",      value = rarity,                                                 inline = true  },
+            { name = "📍 Position",    value = string.format("X:%.0f | Y:%.0f | Z:%.0f", pos.X, pos.Y, pos.Z), inline = false },
+            { name = "🌐 Server ID",   value = getServerId(),                                          inline = true  },
+            { name = "👤 Detected By", value = getPlayer(),                                            inline = true  },
+        },
+        footer    = { text = "BF Notifier • World Spawn" },
+        timestamp = getTimestamp(),
+    }
+end
+
+local function getPosition(obj)
+    if obj:IsA("Model") and obj.PrimaryPart then
+        return obj.PrimaryPart.Position
+    elseif obj:IsA("BasePart") then
+        return obj.Position
+    elseif obj:IsA("Model") then
+        for _, child in ipairs(obj:GetChildren()) do
+            if child:IsA("BasePart") then return child.Position end
+        end
+    end
+    return Vector3.new(0, 0, 0)
+end
+
+local function parseFruitName(obj)
+    local name = obj.Name
+
+    -- Check StringValue / attribute "FruitName" on Models
+    if obj:IsA("Model") then
+        local sv = obj:FindFirstChild("FruitName") or obj:FindFirstChild("Fruit")
+        if sv and sv:IsA("StringValue") and #sv.Value > 0 then return sv.Value end
+        local attr = obj:GetAttribute("FruitName") or obj:GetAttribute("Fruit")
+        if attr then return tostring(attr) end
+    end
+
+    -- Pattern: "DragonFruit", "Dragon_Fruit"
+    local a = name:match("^(.-)_?[Ff]ruit$")
+    if a and #a > 0 then return a end
+
+    -- Pattern: "Fruit_Dragon", "FruitDragon"
+    local b = name:match("^[Ff]ruit[_]?(.+)$")
+    if b and #b > 0 then return b end
+
+    -- Direct rarity table match
+    if FRUIT_RARITY[name] then return name end
+
+    return nil
+end
+
+local function scanWorldFruits()
+    local roots = { Workspace }
+    for _, folder in ipairs({ "Fruits", "Map", "Items", "Drops", "FruitStorage" }) do
+        local f = Workspace:FindFirstChild(folder)
+        if f then table.insert(roots, f) end
+    end
+
+    for _, root in ipairs(roots) do
+        for _, obj in ipairs(root:GetDescendants()) do
+            if obj:IsA("Model") or obj:IsA("BasePart") then
+                local fruitName = parseFruitName(obj)
+                if fruitName then
+                    local id  = tostring(obj)
+                    local now = os.time()
+                    if not notifiedFruits[id] or (now - notifiedFruits[id]) > CONFIG.NOTIFY_COOLDOWN then
+                        notifiedFruits[id] = now
+                        local pos = getPosition(obj)
+                        print("[BF Notifier] 🍑 Found: " .. fruitName)
+                        sendWebhook(CONFIG.FRUIT_SPAWN_WEBHOOK, buildSpawnEmbed(fruitName, pos))
+                    end
+                end
+            end
+        end
+    end
+
+    -- Clean old entries (> 10 min)
+    local now = os.time()
+    for id, ts in pairs(notifiedFruits) do
+        if now - ts > 600 then notifiedFruits[id] = nil end
+    end
+end
+
+-- ══════════════════════════════════════════════════════════════
+--  🛒 DEALER SHOP SCANNER
+-- ══════════════════════════════════════════════════════════════
+local function buildDealerEmbed(fruitName, price)
+    local rarity = getRarity(fruitName)
+    return {
+        title       = "🛒 Dealer Has Your Fruit!",
+        description = string.format("**%s** is in the Blox Fruit Dealer shop right now!", fruitName),
+        color       = 0x5865F2,
+        fields      = {
+            { name = "🍈 Fruit",     value = fruitName,                    inline = true  },
+            { name = "⭐ Rarity",    value = rarity,                       inline = true  },
+            { name = "💰 Price",     value = tostring(price or "Unknown"), inline = true  },
+            { name = "🌐 Server ID", value = getServerId(),                inline = true  },
+            { name = "👤 Player",    value = getPlayer(),                  inline = true  },
+            { name = "⚡ Action",    value = "**Join now and buy it!**",   inline = false },
+        },
+        footer    = { text = "BF Notifier • Dealer Shop" },
+        timestamp = getTimestamp(),
+    }
+end
+
+local function scanDealerShop()
+    local currentStock = {}
+
+    -- ① Search NPC models by name
+    local dealerNPCNames = {
+        "Blox Fruit Dealer", "Blox Fruits Dealer",
+        "Mysterious Scientist", "Gacha Remover", "Fruit Dealer",
+    }
+
+    for _, npcName in ipairs(dealerNPCNames) do
+        local npc = Workspace:FindFirstChild(npcName, true)
+        if npc then
+            -- Check sub-folders for stock data
+            for _, folder in ipairs({ "Stock", "Fruits", "Inventory" }) do
+                local sf = npc:FindFirstChild(folder)
+                if sf then
+                    for _, item in ipairs(sf:GetChildren()) do
+                        local fname = item:IsA("StringValue") and item.Value or item.Name
+                        local price = item:GetAttribute("Price") or "?"
+                        currentStock[fname] = tostring(price)
+                    end
+                end
+            end
+
+            -- Check TextLabels inside NPC GUIs
+            for _, gui in ipairs(npc:GetDescendants()) do
+                if gui:IsA("TextLabel") then
+                    -- e.g. "Dragon - 2,500,000"
+                    local fruit, price = gui.Text:match("^([%a]+)%s*%-+%s*([%d,]+)")
+                    if fruit and FRUIT_RARITY[fruit] then
+                        currentStock[fruit] = price
+                    end
+                    -- Also plain fruit name match
+                    for fname in pairs(FRUIT_RARITY) do
+                        if gui.Text:find(fname) then
+                            currentStock[fname] = gui.Text:match("([%d,]+)") or "?"
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    -- ② Scan PlayerGui for any open Dealer GUIs
+    local lp = Players.LocalPlayer
+    if lp then
+        local pGui = lp:FindFirstChild("PlayerGui")
+        if pGui then
+            for _, desc in ipairs(pGui:GetDescendants()) do
+                if desc:IsA("TextLabel") and desc.Text then
+                    local txt = desc.Text
+                    for fname in pairs(FRUIT_RARITY) do
+                        if txt:find(fname) then
+                            currentStock[fname] = txt:match("([%d,]+)") or "?"
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    -- ③ Notify for any watched fruit found in stock
+    local now = os.time()
+    for fname, price in pairs(currentStock) do
+        if dealerWatchSet[fname] then
+            local key = "dealer_" .. fname
+            if not lastDealerFruits[key] or (now - lastDealerFruits[key]) > CONFIG.NOTIFY_COOLDOWN then
+                lastDealerFruits[key] = now
+                print("[BF Notifier] 🛒 Dealer has watched fruit: " .. fname)
+                sendWebhook(CONFIG.DEALER_WEBHOOK, buildDealerEmbed(fname, price))
+            end
+        end
+    end
+end
+
+-- ══════════════════════════════════════════════════════════════
+--  🔁 MAIN LOOP
+-- ══════════════════════════════════════════════════════════════
+local worldTimer  = 0
+local dealerTimer = 0
+
+print("╔══════════════════════════════════════════════╗")
+print("║   🍈 Blox Fruits Webhook Notifier  ACTIVE    ║")
+print("╚══════════════════════════════════════════════╝")
+
+if CONFIG.FRUIT_SPAWN_WEBHOOK:find("YOUR_") or CONFIG.DEALER_WEBHOOK:find("YOUR_") then
+    warn("[BF Notifier] ⚠️  Webhooks not configured! Edit the CONFIG table.")
+end
+
+RunService.Heartbeat:Connect(function(dt)
+    worldTimer  = worldTimer  + dt
+    dealerTimer = dealerTimer + dt
+
+    if worldTimer >= CONFIG.WORLD_CHECK_INTERVAL then
+        worldTimer = 0
+        pcall(scanWorldFruits)
+    end
+
+    if dealerTimer >= CONFIG.DEALER_CHECK_INTERVAL then
+        dealerTimer = 0
+        pcall(scanDealerShop)
+    end
+end)
+
+print("[BF Notifier] ✅ Monitoring started!")
