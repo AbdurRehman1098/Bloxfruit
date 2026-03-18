@@ -24,11 +24,13 @@ local HRP = Character:WaitForChild("HumanoidRootPart")
 
 local CommF = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("CommF_")
 
-local Status = AdminusUI.Status
-local TweenStatus = AdminusUI.TweenStatus
-local StoreStatus = AdminusUI.StoringStatus
-local FruitType = AdminusUI.FruitType
-local DistanceText = AdminusUI.FruitDistance
+-- Use AdminusUI if returned, otherwise fall back to global `self` set by the original GUI
+local _UI = AdminusUI or self
+local Status      = _UI.Status
+local TweenStatus = _UI.TweenStatus
+local StoreStatus = _UI.StoringStatus
+local FruitType   = _UI.FruitType
+local DistanceText = _UI.FruitDistance
 
 local TWEEN_SPEED = 250
 local ENABLE_ESP = true
@@ -179,4 +181,11 @@ local function Main()
 
 end
 
-Main()
+-- Loop so it keeps running if server hop fails or errors
+while true do
+	local ok, err = pcall(Main)
+	if not ok then
+		warn("[FruitFinder] Error in Main: " .. tostring(err))
+	end
+	task.wait(1)
+end
