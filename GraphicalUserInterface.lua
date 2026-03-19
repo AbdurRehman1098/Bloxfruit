@@ -24,5 +24,44 @@ if gui then
     end
 end
 
+-- ── Patch Discord invite link ──────────────────────────────────
+-- Override CopyLinkButton so clicking it copies our Discord invite
+local DISCORD_LINK = "https://discord.gg/8GcSpAcVYm"
+
+task.spawn(function()
+    task.wait(1)  -- wait for original script to wire up its click handlers
+
+    local gui2 = game:GetService("CoreGui"):FindFirstChild("Adminus")
+    if gui2 then
+        local main2 = gui2:FindFirstChild("Main")
+        if main2 then
+            local holder = main2:FindFirstChild("Holder")
+            if holder then
+                local settings = holder:FindFirstChild("settings")
+                if settings then
+                    local copyBtn = settings:FindFirstChild("CopyLinkButton")
+                    if copyBtn then
+                        -- Update visible label
+                        local title5 = copyBtn:FindFirstChild("Title")
+                        if title5 then title5.Text = "Discord Invite" end
+
+                        local value4 = copyBtn:FindFirstChild("Value")
+                        if value4 then value4.Text = "discord.gg/8GcSpAcVYm" end
+
+                        -- Override click — Interact is the transparent full-size TextButton
+                        local interact = copyBtn:FindFirstChild("Interact")
+                        if interact then
+                            -- Disconnect original connections by replacing with a fresh one
+                            interact.MouseButton1Click:Connect(function()
+                                setclipboard(DISCORD_LINK)
+                            end)
+                        end
+                    end
+                end
+            end
+        end
+    end
+end)
+
 -- Return the global `self` table so FruitFinder gets Status, TweenStatus etc.
 return self
